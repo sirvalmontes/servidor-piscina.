@@ -32,7 +32,7 @@ def get_comando():
 
 @app.route('/')
 def home():
-    return "Servidor da Piscina Sirval Online"
+    return "Servidor Teste 1"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
