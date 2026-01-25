@@ -2,35 +2,39 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Memória para os dados
-dados = {"nivel": "BAIXO", "bomba": "OFF", "alerta": "NORMAL"}
-comando = "NENHUM"
+# Dados salvos na memória (sem Firebase por enquanto)
+dados_piscina = {
+    "nivel": "BAIXO",
+    "bomba": "OFF",
+    "alerta": "NORMAL",
+    "comando": "NENHUM"
+}
 
 @app.route('/')
 def home():
-    return "Servidor Piscina Sirval Ativo"
+    return "Servidor Piscina Sirval - MODO TESTE ATIVO"
 
 @app.route('/status', methods=['GET', 'POST'])
 def handle_status():
-    global dados
+    global dados_piscina
     if request.method == 'POST':
-        novo_status = request.json
-        if novo_status:
-            dados.update(novo_status)
+        recebido = request.get_json()
+        if recebido:
+            dados_piscina.update(recebido)
         return "OK", 200
-    return jsonify(dados)
+    return jsonify(dados_piscina)
 
 @app.route('/comando', methods=['GET', 'POST'])
 def handle_comando():
-    global comando
+    global dados_piscina
     if request.method == 'POST':
-        cmd_recebido = request.json
-        comando = cmd_recebido.get("acao", "NENHUM")
+        cmd = request.get_json()
+        dados_piscina["comando"] = cmd.get("acao", "NENHUM")
         return jsonify({"status": "OK"})
     
-    # Quando o ESP32 ler o comando, ele volta para NENHUM
-    temp = comando
-    comando = "NENHUM"
+    # ESP32 lê o comando e ele volta para NENHUM
+    temp = dados_piscina["comando"]
+    dados_piscina["comando"] = "NENHUM"
     return jsonify({"comando": temp})
 
 if __name__ == '__main__':
