@@ -1,32 +1,55 @@
-from flask import Flask, jsonify, request
+from flask import Flask, request, jsonify
+import json
+import os
 
-app = Flask(__name__)   # 👈 TEM que vir ANTES das rotas
+app = Flask(__name__)
 
-memoria = {
-    "nivel": "OK",
-    "bomba": "OFF",
-    "alerta": "NORMAL"
-}
+ARQ = "estado.json"
 
-@app.route('/')
-def pagina_inicial():
-    return "SERVIDOR RODANDO"
+def carregar_estado():
+    if not os.path.exists(ARQ):
+        return {
+            "nivel": "BAIXO",
+            "bomba": "OFF",
+            "alerta": "NORMAL"
+        }
+    with open(ARQ, "r") as f:
+        return json.load(f)
 
-@app.route('/status', methods=['GET'])
-def ver_status():
-    return jsonify(memoria)
+def salvar_estado(estado):
+    with open(ARQ, "w") as f:
+        json.dump(estado, f)
 
-@app.route('/comando', methods=['POST'])
-def receber_comando():
-    dados = request.json or {}
+# ===== STATUS =====
+@app.route("/status", methods=["GET", "POST"])
+def status():
+    estado = carregar_estado()
 
-    if "nivel" in dados:
-        memoria["nivel"] = dados["nivel"]
+    if request.method == "POST":
+        data = request.json or {}
+        if "nivel" in data:
+            estado["nivel"] = data["nivel"]
+            salvar_estado(estado)
 
-    if "bomba" in dados:
-        memoria["bomba"] = dados["bomba"]
+    return jsonify(estado)
 
-    if "alerta" in dados:
-        memoria["alerta"] = dados["alerta"]
+# ===== COMANDO =====
+@app.route("/comando", methods=["POST"])
+def comando():
+    estado = carregar_estado()
+    data = request.json or {}
 
-    return jsonify(memoria)
+    acao = data.get("acao")
+
+    if acao == "LIGAR":
+        estado["bomba"] = "ON"
+    elif acao == "DESLIGAR":
+        estado["bomba"] = "OFF"
+    elif acao == "CIENTE":
+        estado["alerta"] = "NORMAL"
+
+    salvar_estado(estado)
+    return jsonify(estado)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=3000)
