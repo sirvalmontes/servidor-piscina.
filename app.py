@@ -27,9 +27,15 @@ def status():
 
     if request.method == "POST":
         data = request.json or {}
+
         if "nivel" in data:
             estado["nivel"] = data["nivel"]
-            salvar_estado(estado)
+
+            # 🔴 ALERTA TRAVADO
+            if data["nivel"] in ["ALTO", "CHEIO"]:
+                estado["alerta"] = "CHEIO"
+
+        salvar_estado(estado)
 
     return jsonify(estado)
 
@@ -43,8 +49,10 @@ def comando():
 
     if acao == "LIGAR":
         estado["bomba"] = "ON"
+
     elif acao == "DESLIGAR":
         estado["bomba"] = "OFF"
+
     elif acao == "CIENTE":
         estado["alerta"] = "NORMAL"
 
