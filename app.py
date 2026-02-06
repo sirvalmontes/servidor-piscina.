@@ -31,17 +31,15 @@ def status():
         if "nivel" in data:
             estado["nivel"] = data["nivel"]
 
-            # 🔥 LÓGICA CORRETA DO ALERTA
-            if data["nivel"] == "CHEIO":
+            # 🔥 LÓGICA CORRIGIDA DO ALERTA
+            if data["nivel"] in ["ALTO", "CHEIO"]:
                 estado["alerta"] = "CHEIO"
                 estado["bomba"] = "OFF"
             else:
                 estado["alerta"] = "NORMAL"
 
         salvar_estado(estado)
-
-    return jsonify(estado)
-
+   
     return jsonify(estado)
 
 # ===== COMANDO =====
