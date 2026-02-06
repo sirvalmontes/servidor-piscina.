@@ -35,15 +35,12 @@ def status():
             if data["nivel"] == "CHEIO":
                 estado["alerta"] = "CHEIO"
                 estado["bomba"] = "OFF"
-
-            elif data["nivel"] == "ALTO":
-                estado["alerta"] = "NORMAL"
-                estado["bomba"] = "OFF"
-
-            else:  # BAIXO
+            else:
                 estado["alerta"] = "NORMAL"
 
         salvar_estado(estado)
+
+    return jsonify(estado)
 
     return jsonify(estado)
 
