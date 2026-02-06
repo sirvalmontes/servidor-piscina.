@@ -31,9 +31,17 @@ def status():
         if "nivel" in data:
             estado["nivel"] = data["nivel"]
 
-            # 🔴 ALERTA TRAVADO
-            if data["nivel"] in ["ALTO", "CHEIO"]:
+            # 🔥 LÓGICA CORRETA DO ALERTA
+            if data["nivel"] == "CHEIO":
                 estado["alerta"] = "CHEIO"
+                estado["bomba"] = "OFF"
+
+            elif data["nivel"] == "ALTO":
+                estado["alerta"] = "NORMAL"
+                estado["bomba"] = "OFF"
+
+            else:  # BAIXO
+                estado["alerta"] = "NORMAL"
 
         salvar_estado(estado)
 
@@ -47,7 +55,7 @@ def comando():
 
     acao = data.get("acao")
 
-    if acao == "LIGAR":
+    if acao == "LIGAR" and estado["nivel"] == "BAIXO":
         estado["bomba"] = "ON"
 
     elif acao == "DESLIGAR":
