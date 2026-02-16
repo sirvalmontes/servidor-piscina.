@@ -8,34 +8,17 @@ from firebase_admin import credentials, messaging
 app = Flask(__name__)
 
 # ================= CONFIG FIREBASE =================
-firebase_json = os.environ.get("FIREBASE_KEY_JSON")  # variável do Render
-if firebase_json:
-    cred_dict = json.loads(firebase_json)
-    if not firebase_admin._apps:
-        firebase_admin.initialize_app(credentials.Certificate(cred_dict))
-    print("✔ Firebase inicializado com sucesso via variável de ambiente!")
-else:
-    print("✖ Erro: variável FIREBASE_KEY_JSON não encontrada!")
+firebase_key_json = os.environ.get("FIREBASE_KEY_JSON")
+if not firebase_key_json:
+    raise RuntimeError("✖ Variável de ambiente FIREBASE_KEY_JSON não configurada!")
 
+cred_dict = json.loads(firebase_key_json)
+cred = credentials.Certificate(cred_dict)
+firebase_admin.initialize_app(cred)
+print("✔ Firebase inicializado com sucesso!")
+
+# ================= ARQUIVO DE ESTADO =================
 ARQ = "estado.json"
-
-def enviar_notificacao_push(titulo, corpo):
-    try:
-        message = messaging.Message(
-            notification=messaging.Notification(title=titulo, body=corpo),
-            android=messaging.AndroidConfig(
-                priority='high',
-                notification=messaging.AndroidNotification(
-                    channel_id='piscina_channel',
-                    sound='default',
-                ),
-            ),
-            topic="piscina",
-        )
-        response = messaging.send(message)
-        print("✔ Notificação enviada:", response)
-    except Exception as e:
-        print("✖ Erro ao enviar notificação:", e)
 
 def carregar_estado():
     if not os.path.exists(ARQ):
@@ -47,6 +30,26 @@ def salvar_estado(estado):
     with open(ARQ, "w") as f:
         json.dump(estado, f)
 
+# ================= NOTIFICAÇÕES =================
+def enviar_notificacao_push(titulo, corpo):
+    try:
+        message = messaging.Message(
+            notification=messaging.Notification(title=titulo, body=corpo),
+            android=messaging.AndroidConfig(
+                priority='high',
+                notification=messaging.AndroidNotification(
+                    channel_id='piscina_channel',  # ID crítico para o Android
+                    sound='default',
+                ),
+            ),
+            topic="piscina",
+        )
+        response = messaging.send(message)
+        print("✔ Notificação enviada:", response)
+    except Exception as e:
+        print("✖ Erro ao enviar notificação:", e)
+
+# ================= ROTAS =================
 @app.route("/status", methods=["GET", "POST"])
 def status():
     estado = carregar_estado()
@@ -82,5 +85,6 @@ def comando():
     salvar_estado(estado)
     return jsonify(estado)
 
+# ================= INÍCIO =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
