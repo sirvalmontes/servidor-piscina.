@@ -43,6 +43,7 @@ def carregar_estado():
             "nivel": "BAIXO",
             "bomba": "OFF",
             "alerta": "NORMAL",
+            "alerta_enviada": False,
             "ultimo_update": time.time()
         }
     with open(ARQ, "r") as f:
@@ -66,13 +67,16 @@ def status():
                 estado["alerta"] = "CHEIO"
                 estado["bomba"] = "OFF"
 
-                # envia notificação continuamente enquanto alerta for CHEIO
-                enviar_notificacao_push(
-                    "🚨 PISCINA CHEIA!",
-                    f"Nível: {novo_nivel}. Bomba desligada."
-                )
+                # envia notificação somente se ainda não foi enviada
+                if not estado.get("alerta_enviada", False):
+                    enviar_notificacao_push(
+                        "🚨 PISCINA CHEIA!",
+                        f"Nível: {novo_nivel}. Bomba desligada."
+                    )
+                    estado["alerta_enviada"] = True
             else:
                 estado["alerta"] = "NORMAL"
+                estado["alerta_enviada"] = False  # reset quando nível volta ao normal
 
             salvar_estado(estado)
     return jsonify(estado)
@@ -87,7 +91,8 @@ def comando():
     elif acao == "DESLIGAR":
         estado["bomba"] = "OFF"
     elif acao == "CIENTE":
-        estado["alerta"] = "NORMAL"  # reset alerta
+        estado["alerta"] = "NORMAL"
+        estado["alerta_enviada"] = False  # permite futuras notificações
     salvar_estado(estado)
     return jsonify(estado)
 
