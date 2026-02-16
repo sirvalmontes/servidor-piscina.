@@ -8,14 +8,14 @@ from firebase_admin import credentials, messaging
 app = Flask(__name__)
 
 # ================= CONFIG FIREBASE =================
-# Tenta carregar do arquivo local, se não, tenta da variável de ambiente (Render)
-if os.path.exists("firebase-key.json"):
-    cred = credentials.Certificate("firebase-key.json")
+firebase_json = os.environ.get("FIREBASE_KEY_JSON")  # variável do Render
+if firebase_json:
+    cred_dict = json.loads(firebase_json)
     if not firebase_admin._apps:
-        firebase_admin.initialize_app(cred)
-    print("✔ Firebase inicializado com sucesso!")
+        firebase_admin.initialize_app(credentials.Certificate(cred_dict))
+    print("✔ Firebase inicializado com sucesso via variável de ambiente!")
 else:
-    print("✖ Erro: firebase-key.json não encontrado!")
+    print("✖ Erro: variável FIREBASE_KEY_JSON não encontrada!")
 
 ARQ = "estado.json"
 
@@ -26,7 +26,7 @@ def enviar_notificacao_push(titulo, corpo):
             android=messaging.AndroidConfig(
                 priority='high',
                 notification=messaging.AndroidNotification(
-                    channel_id='piscina_channel', # ID CRÍTICO PARA O ANDROID
+                    channel_id='piscina_channel',
                     sound='default',
                 ),
             ),
