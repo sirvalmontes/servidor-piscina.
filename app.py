@@ -69,7 +69,7 @@ def loop_notificacao():
             agora = time.time()
 
             # envia a cada 30 segundos
-            if agora - estado["ultimo_envio"] > 30:
+            if agora - estado["ultimo_envio"] > 10:
                 enviar_notificacao_push(
                     "🚨 PISCINA CHEIA!",
                     "Clique em CIENTE no app para parar."
