@@ -8,43 +8,40 @@ from firebase_admin import credentials, messaging
 
 app = Flask(__name__)
 
-# ================= CONFIG FIREBASE =================
+# ================= FIREBASE =================
 firebase_json = os.environ.get("FIREBASE_KEY_JSON")
 if firebase_json:
     cred_dict = json.loads(firebase_json)
     if not firebase_admin._apps:
         firebase_admin.initialize_app(credentials.Certificate(cred_dict))
-    print("✔ Firebase inicializado com sucesso!")
+    print("✔ Firebase OK")
 else:
-    print("✖ FIREBASE_KEY_JSON não encontrada!")
+    print("✖ FIREBASE_KEY_JSON não encontrada")
 
 ARQ = "estado.json"
 
-# ===================================================
-# ENVIO DE NOTIFICAÇÃO
-# ===================================================
+
+# ================= NOTIFICAÇÃO =================
 def enviar_notificacao_push(titulo, corpo):
     try:
         message = messaging.Message(
             notification=messaging.Notification(title=titulo, body=corpo),
             android=messaging.AndroidConfig(
-                priority='high',
+                priority="high",
                 notification=messaging.AndroidNotification(
-                    channel_id='piscina_channel',
-                    sound='default',
+                    channel_id="piscina_channel",
+                    sound="default",
                 ),
             ),
             topic="piscina",
         )
-        response = messaging.send(message)
-        print("✔ Notificação enviada:", response)
+        messaging.send(message)
+        print("✔ Notificação enviada")
     except Exception as e:
-        print("✖ Erro ao enviar notificação:", e)
+        print("✖ Erro ao enviar:", e)
 
 
-# ===================================================
-# ESTADO
-# ===================================================
+# ================= ESTADO =================
 def carregar_estado():
     if not os.path.exists(ARQ):
         return {
@@ -52,7 +49,7 @@ def carregar_estado():
             "bomba": "OFF",
             "alerta": "NORMAL",
             "ciente": False,
-            "ultimo_envio": 0
+            "ultimo_envio": 0,
         }
     with open(ARQ, "r") as f:
         return json.load(f)
@@ -63,36 +60,30 @@ def salvar_estado(estado):
         json.dump(estado, f)
 
 
-# ===================================================
-# LOOP DE ALERTA CONTÍNUO
-# ===================================================
+# ================= LOOP DE ALERTA =================
 def loop_notificacao():
     while True:
         estado = carregar_estado()
 
-        if estado["alerta"] == "CHEIO" and not estado.get("ciente", False):
-
+        if estado["alerta"] == "CHEIO" and not estado["ciente"]:
             agora = time.time()
 
             # envia a cada 30 segundos
-            if agora - estado.get("ultimo_envio", 0) > 15:
+            if agora - estado["ultimo_envio"] > 30:
                 enviar_notificacao_push(
                     "🚨 PISCINA CHEIA!",
-                    "A bomba foi desligada. Clique em CIENTE no app."
+                    "Clique em CIENTE no app para parar."
                 )
                 estado["ultimo_envio"] = agora
                 salvar_estado(estado)
 
-        time.sleep(5)  # verifica a cada 5 segundos
+        time.sleep(5)
 
 
-# inicia thread do loop
 threading.Thread(target=loop_notificacao, daemon=True).start()
 
 
-# ===================================================
-# ROTAS
-# ===================================================
+# ================= ROTAS =================
 @app.route("/status", methods=["GET", "POST"])
 def status():
     estado = carregar_estado()
@@ -102,13 +93,23 @@ def status():
 
         if "nivel" in data:
             novo_nivel = data["nivel"].upper()
+            nivel_antigo = estado["nivel"]
+
             estado["nivel"] = novo_nivel
 
+            # 🔴 Só reinicia alerta se mudou de NÃO-CHEIO → CHEIO
             if novo_nivel in ["ALTO", "CHEIO"]:
-                estado["alerta"] = "CHEIO"
+
+                if nivel_antigo not in ["ALTO", "CHEIO"]:
+                    # virou cheio agora
+                    estado["alerta"] = "CHEIO"
+                    estado["ciente"] = False
+                    estado["ultimo_envio"] = 0
+
                 estado["bomba"] = "OFF"
-                estado["ciente"] = False  # precisa clicar novamente
+
             else:
+                # nível baixou → reseta tudo
                 estado["alerta"] = "NORMAL"
                 estado["ciente"] = False
 
@@ -130,13 +131,13 @@ def comando():
         estado["bomba"] = "OFF"
 
     elif acao == "CIENTE":
-        estado["ciente"] = True      # ← ISSO PARA AS NOTIFICAÇÕES
-        estado["alerta"] = "NORMAL"
+        estado["ciente"] = True      # ← AGORA FUNCIONA DE VERDADE
+        print("✔ Usuário clicou CIENTE")
 
     salvar_estado(estado)
     return jsonify(estado)
 
 
-# ===================================================
+# ================= START =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
