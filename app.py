@@ -8,12 +8,10 @@ from firebase_admin import credentials, messaging
 app = Flask(__name__)
 
 # ================= CONFIG FIREBASE (VIA RENDER) =================
-# Lógica corrigida para usar a variável de ambiente que você preencheu
 firebase_json = os.environ.get("FIREBASE_CHAVE_JSON")
 
 if firebase_json:
     try:
-        # Se o Firebase ainda não foi iniciado, inicia agora
         if not firebase_admin._apps:
             cred_dict = json.loads(firebase_json)
             cred = credentials.Certificate(cred_dict)
@@ -35,7 +33,14 @@ def enviar_notificacao_push(titulo, corpo):
                 title=titulo,
                 body=corpo,
             ),
-            topic="piscina", # Deve ser o mesmo tópico que você colocou no Flutter
+            # Prioridade alta ajuda a chegar mesmo com celular em repouso
+            android=messaging.AndroidConfig(
+                priority='high',
+                notification=messaging.AndroidNotification(
+                    channel_id='piscina_channel', # ID que criamos no Flutter
+                ),
+            ),
+            topic="piscina",
         )
         response = messaging.send(message)
         print("✔ Notificação enviada com sucesso:", response)
@@ -79,24 +84,28 @@ def status():
         data = request.json or {}
 
         if "nivel" in data:
-            novo_nivel = data["nivel"]
-            nivel_antigo = estado.get("nivel")
-            
+            novo_nivel = data["nivel"].upper()
             estado["nivel"] = novo_nivel
             estado["ultimo_update"] = time.time()
 
-            # LÓGICA DE ALERTA
+            # --- LÓGICA DE ALERTA INSISTENTE ---
             if novo_nivel in ["ALTO", "CHEIO"]:
-                estado["alerta"] = "CHEIO"
-                estado["bomba"] = "OFF" # Segurança: desliga se encher
-                
-                # SÓ ENVIA NOTIFICAÇÃO SE O NÍVEL MUDOU PARA EVITAR SPAM
-                if nivel_antigo != novo_nivel:
+                # Se o nível é crítico e o usuário NÃO clicou em CIENTE ainda
+                if estado.get("alerta") != "NORMAL":
+                    estado["alerta"] = "CHEIO"
+                    estado["bomba"] = "OFF" # Segurança
+                    
+                    # Envia a notificação toda vez que o ESP32 postar (insistência)
                     enviar_notificacao_push(
-                        "🚨 Alerta de Piscina!", 
-                        f"O nível está {novo_nivel}. A bomba foi bloqueada por segurança."
+                        "🚨 ALERTA CRÍTICO: PISCINA CHEIA!", 
+                        f"O nível está {novo_nivel}. Desligue a bomba agora!"
                     )
+                else:
+                    # Se o alerta está NORMAL, significa que ele clicou em CIENTE
+                    # mas a piscina continua cheia. Não mandamos notificação.
+                    pass
             else:
+                # Se o nível baixou de ALTO/CHEIO, resetamos o alerta automaticamente
                 estado["alerta"] = "NORMAL"
 
             salvar_estado(estado)
@@ -104,7 +113,7 @@ def status():
     estado = verificar_esp(estado)
     return jsonify(estado)
 
-# ================= ROTA DE COMANDO (BOTAO DO APP) =================
+# ================= ROTA DE COMANDO (BOTÃO DO APP) =================
 @app.route("/comando", methods=["POST"])
 def comando():
     estado = carregar_estado()
@@ -113,9 +122,10 @@ def comando():
     acao = data.get("acao")
 
     if acao == "LIGAR":
-        # Só deixa ligar se não estiver cheio
         if estado["nivel"] not in ["ALTO", "CHEIO"]:
             estado["bomba"] = "ON"
+            # Ao ligar manualmente, garantimos que o alerta esteja limpo
+            estado["alerta"] = "NORMAL"
         else:
             return jsonify({"erro": "Piscina cheia!"}), 400
             
@@ -123,6 +133,8 @@ def comando():
         estado["bomba"] = "OFF"
         
     elif acao == "CIENTE":
+        # Este comando faz o servidor parar de enviar notificações
+        # até que o nível baixe e suba de novo, ou o ESP32 detecte nova mudança
         estado["alerta"] = "NORMAL"
 
     salvar_estado(estado)
@@ -130,6 +142,5 @@ def comando():
 
 # ================= INICIALIZAÇÃO =================
 if __name__ == "__main__":
-    # O Render usa a porta 3000 por padrão em muitos casos ou via env
     port = int(os.environ.get("PORT", 3000))
     app.run(host="0.0.0.0", port=port)
