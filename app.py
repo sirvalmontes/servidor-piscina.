@@ -7,14 +7,22 @@ from firebase_admin import credentials, messaging
 
 app = Flask(__name__)
 
-# ================= CONFIG FIREBASE =================
-# Verifica se o arquivo de chave existe antes de iniciar
-if os.path.exists("firebase-key.json"):
-    cred = credentials.Certificate("firebase-key.json")
-    firebase_admin.initialize_app(cred)
-    print("✔ Firebase inicializado com sucesso!")
+# ================= CONFIG FIREBASE (VIA RENDER) =================
+# Lógica corrigida para usar a variável de ambiente que você preencheu
+firebase_json = os.environ.get("FIREBASE_CHAVE_JSON")
+
+if firebase_json:
+    try:
+        # Se o Firebase ainda não foi iniciado, inicia agora
+        if not firebase_admin._apps:
+            cred_dict = json.loads(firebase_json)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+            print("✔ Firebase inicializado com sucesso via Render!")
+    except Exception as e:
+        print(f"✖ Erro ao processar chave do Firebase: {e}")
 else:
-    print("✖ Erro: Arquivo firebase-key.json não encontrado!")
+    print("✖ Erro: Variável FIREBASE_CHAVE_JSON não encontrada no Render!")
 
 ARQ = "estado.json"
 TIMEOUT_ESP = 30 
@@ -27,14 +35,14 @@ def enviar_notificacao_push(titulo, corpo):
                 title=titulo,
                 body=corpo,
             ),
-            topic="piscina", # Deve ser o mesmo tópico do Flutter
+            topic="piscina", # Deve ser o mesmo tópico que você colocou no Flutter
         )
         response = messaging.send(message)
-        print("✔ Notificação enviada:", response)
+        print("✔ Notificação enviada com sucesso:", response)
     except Exception as e:
-        print("✖ Erro ao enviar notificação:", e)
+        print("✖ Erro fatal ao enviar notificação:", e)
 
-# ================= CARREGAR / SALVAR =================
+# ================= CARREGAR / SALVAR ESTADO =================
 def carregar_estado():
     if not os.path.exists(ARQ):
         return {
@@ -43,8 +51,11 @@ def carregar_estado():
             "alerta": "NORMAL",
             "ultimo_update": time.time()
         }
-    with open(ARQ, "r") as f:
-        return json.load(f)
+    try:
+        with open(ARQ, "r") as f:
+            return json.load(f)
+    except:
+        return {"nivel": "BAIXO", "bomba": "OFF", "alerta": "NORMAL", "ultimo_update": time.time()}
 
 def salvar_estado(estado):
     with open(ARQ, "w") as f:
@@ -59,7 +70,7 @@ def verificar_esp(estado):
         estado["bomba"] = "OFF"
     return estado
 
-# ================= STATUS =================
+# ================= ROTA DE STATUS (USADA PELO ESP32 E CELULAR) =================
 @app.route("/status", methods=["GET", "POST"])
 def status():
     estado = carregar_estado()
@@ -74,16 +85,16 @@ def status():
             estado["nivel"] = novo_nivel
             estado["ultimo_update"] = time.time()
 
-            # 🔥 LÓGICA DO ALERTA E NOTIFICAÇÃO
+            # LÓGICA DE ALERTA
             if novo_nivel in ["ALTO", "CHEIO"]:
                 estado["alerta"] = "CHEIO"
-                estado["bomba"] = "OFF"
+                estado["bomba"] = "OFF" # Segurança: desliga se encher
                 
-                # SÓ ENVIA NOTIFICAÇÃO SE O NÍVEL MUDOU AGORA (para não spammar)
+                # SÓ ENVIA NOTIFICAÇÃO SE O NÍVEL MUDOU PARA EVITAR SPAM
                 if nivel_antigo != novo_nivel:
                     enviar_notificacao_push(
                         "🚨 Alerta de Piscina!", 
-                        f"O nível está {novo_nivel}. A bomba foi desligada!"
+                        f"O nível está {novo_nivel}. A bomba foi bloqueada por segurança."
                     )
             else:
                 estado["alerta"] = "NORMAL"
@@ -93,7 +104,7 @@ def status():
     estado = verificar_esp(estado)
     return jsonify(estado)
 
-# ================= COMANDO =================
+# ================= ROTA DE COMANDO (BOTAO DO APP) =================
 @app.route("/comando", methods=["POST"])
 def comando():
     estado = carregar_estado()
@@ -101,15 +112,24 @@ def comando():
     data = request.json or {}
     acao = data.get("acao")
 
-    if acao == "LIGAR" and estado["nivel"] == "BAIXO":
-        estado["bomba"] = "ON"
+    if acao == "LIGAR":
+        # Só deixa ligar se não estiver cheio
+        if estado["nivel"] not in ["ALTO", "CHEIO"]:
+            estado["bomba"] = "ON"
+        else:
+            return jsonify({"erro": "Piscina cheia!"}), 400
+            
     elif acao == "DESLIGAR":
         estado["bomba"] = "OFF"
+        
     elif acao == "CIENTE":
         estado["alerta"] = "NORMAL"
 
     salvar_estado(estado)
     return jsonify(estado)
 
+# ================= INICIALIZAÇÃO =================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000)
+    # O Render usa a porta 3000 por padrão em muitos casos ou via env
+    port = int(os.environ.get("PORT", 3000))
+    app.run(host="0.0.0.0", port=port)
