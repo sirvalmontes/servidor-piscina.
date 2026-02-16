@@ -8,29 +8,17 @@ from firebase_admin import credentials, messaging
 app = Flask(__name__)
 
 # ================= CONFIG FIREBASE =================
-firebase_key_json = os.environ.get("FIREBASE_KEY_JSON")
-if not firebase_key_json:
-    raise RuntimeError("✖ Variável de ambiente FIREBASE_KEY_JSON não configurada!")
+firebase_json = os.environ.get("FIREBASE_KEY_JSON")  # variável do Render
+if firebase_json:
+    cred_dict = json.loads(firebase_json)
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(credentials.Certificate(cred_dict))
+    print("✔ Firebase inicializado com sucesso via variável de ambiente!")
+else:
+    print("✖ Erro: variável FIREBASE_KEY_JSON não encontrada!")
 
-cred_dict = json.loads(firebase_key_json)
-cred = credentials.Certificate(cred_dict)
-firebase_admin.initialize_app(cred)
-print("✔ Firebase inicializado com sucesso!")
-
-# ================= ARQUIVO DE ESTADO =================
 ARQ = "estado.json"
 
-def carregar_estado():
-    if not os.path.exists(ARQ):
-        return {"nivel": "BAIXO", "bomba": "OFF", "alerta": "NORMAL", "ultimo_update": time.time()}
-    with open(ARQ, "r") as f:
-        return json.load(f)
-
-def salvar_estado(estado):
-    with open(ARQ, "w") as f:
-        json.dump(estado, f)
-
-# ================= NOTIFICAÇÕES =================
 def enviar_notificacao_push(titulo, corpo):
     try:
         message = messaging.Message(
@@ -38,7 +26,7 @@ def enviar_notificacao_push(titulo, corpo):
             android=messaging.AndroidConfig(
                 priority='high',
                 notification=messaging.AndroidNotification(
-                    channel_id='piscina_channel',  # ID crítico para o Android
+                    channel_id='piscina_channel',
                     sound='default',
                 ),
             ),
@@ -49,7 +37,22 @@ def enviar_notificacao_push(titulo, corpo):
     except Exception as e:
         print("✖ Erro ao enviar notificação:", e)
 
-# ================= ROTAS =================
+def carregar_estado():
+    if not os.path.exists(ARQ):
+        return {
+            "nivel": "BAIXO",
+            "bomba": "OFF",
+            "alerta": "NORMAL",
+            "alerta_enviada": False,
+            "ultimo_update": time.time()
+        }
+    with open(ARQ, "r") as f:
+        return json.load(f)
+
+def salvar_estado(estado):
+    with open(ARQ, "w") as f:
+        json.dump(estado, f)
+
 @app.route("/status", methods=["GET", "POST"])
 def status():
     estado = carregar_estado()
@@ -57,17 +60,24 @@ def status():
         data = request.json or {}
         if "nivel" in data:
             novo_nivel = data["nivel"].upper()
-            nivel_antigo = estado.get("nivel")
             estado["nivel"] = novo_nivel
             estado["ultimo_update"] = time.time()
 
             if novo_nivel in ["ALTO", "CHEIO"]:
                 estado["alerta"] = "CHEIO"
                 estado["bomba"] = "OFF"
-                if nivel_antigo != novo_nivel:
-                    enviar_notificacao_push("🚨 PISCINA CHEIA!", f"Nível: {novo_nivel}. Bomba desligada.")
+
+                # envia notificação repetida enquanto usuário não clicar CIENTE
+                if not estado.get("alerta_enviada", False):
+                    enviar_notificacao_push(
+                        "🚨 PISCINA CHEIA!",
+                        f"Nível: {novo_nivel}. Bomba desligada."
+                    )
+                    estado["alerta_enviada"] = True
             else:
                 estado["alerta"] = "NORMAL"
+                estado["alerta_enviada"] = False
+
             salvar_estado(estado)
     return jsonify(estado)
 
@@ -82,9 +92,9 @@ def comando():
         estado["bomba"] = "OFF"
     elif acao == "CIENTE":
         estado["alerta"] = "NORMAL"
+        estado["alerta_enviada"] = False  # reset para permitir novas notificações
     salvar_estado(estado)
     return jsonify(estado)
 
-# ================= INÍCIO =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
