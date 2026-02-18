@@ -50,6 +50,7 @@ def carregar_estado():
             "alerta": "NORMAL",
             "ciente": False,
             "ultimo_envio": 0,
+            "ultimo_heartbeat": 0,  # ← NOVO (detecta offline)
         }
     with open(ARQ, "r") as f:
         return json.load(f)
@@ -68,7 +69,6 @@ def loop_notificacao():
         if estado["alerta"] == "CHEIO" and not estado["ciente"]:
             agora = time.time()
 
-            # envia a cada 30 segundos
             if agora - estado["ultimo_envio"] > 10:
                 enviar_notificacao_push(
                     "🚨 PISCINA CHEIA!",
@@ -88,8 +88,12 @@ threading.Thread(target=loop_notificacao, daemon=True).start()
 def status():
     estado = carregar_estado()
 
+    # ===== POST vindo do ESP =====
     if request.method == "POST":
         data = request.json or {}
+
+        # marca último contato do ESP
+        estado["ultimo_heartbeat"] = time.time()
 
         if "nivel" in data:
             novo_nivel = data["nivel"].upper()
@@ -97,23 +101,31 @@ def status():
 
             estado["nivel"] = novo_nivel
 
-            # 🔴 Só reinicia alerta se mudou de NÃO-CHEIO → CHEIO
             if novo_nivel in ["ALTO", "CHEIO"]:
-
                 if nivel_antigo not in ["ALTO", "CHEIO"]:
-                    # virou cheio agora
                     estado["alerta"] = "CHEIO"
                     estado["ciente"] = False
                     estado["ultimo_envio"] = 0
 
                 estado["bomba"] = "OFF"
-
             else:
-                # nível baixou → reseta tudo
                 estado["alerta"] = "NORMAL"
                 estado["ciente"] = False
 
             salvar_estado(estado)
+
+        return jsonify(estado)
+
+    # ===== GET para o APP =====
+    agora = time.time()
+
+    # se ESP não envia há 30s → considera offline
+    if agora - estado.get("ultimo_heartbeat", 0) > 30:
+        return jsonify({
+            "nivel": "DESCONECTADO",
+            "bomba": "-",
+            "alerta": "DISPOSITIVO OFFLINE"
+        })
 
     return jsonify(estado)
 
@@ -131,7 +143,7 @@ def comando():
         estado["bomba"] = "OFF"
 
     elif acao == "CIENTE":
-        estado["ciente"] = True      # ← AGORA FUNCIONA DE VERDADE
+        estado["ciente"] = True
         print("✔ Usuário clicou CIENTE")
 
     salvar_estado(estado)
