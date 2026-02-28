@@ -21,26 +21,6 @@ else:
 ARQ = "estado.json"
 
 
-# ================= NOTIFICAÇÃO =================
-def enviar_notificacao_push(titulo, corpo):
-    try:
-        message = messaging.Message(
-            notification=messaging.Notification(title=titulo, body=corpo),
-            android=messaging.AndroidConfig(
-                priority="high",
-                notification=messaging.AndroidNotification(
-                    channel_id="piscina_channel",
-                    sound="default",
-                ),
-            ),
-            topic="piscina",
-        )
-        messaging.send(message)
-        print("✔ Notificação enviada")
-    except Exception as e:
-        print("✖ Erro ao enviar:", e)
-
-
 # ================= ESTADO =================
 def carregar_estado():
     if not os.path.exists(ARQ):
@@ -50,7 +30,8 @@ def carregar_estado():
             "alerta": "NORMAL",
             "ciente": False,
             "ultimo_envio": 0,
-            "ultimo_heartbeat": 0,  # ← NOVO (detecta offline)
+            "ultimo_heartbeat": 0,
+            "token": None,  # ← NOVO
         }
     with open(ARQ, "r") as f:
         return json.load(f)
@@ -59,6 +40,39 @@ def carregar_estado():
 def salvar_estado(estado):
     with open(ARQ, "w") as f:
         json.dump(estado, f)
+
+
+# ================= NOTIFICAÇÃO =================
+def enviar_notificacao_push(titulo, corpo):
+    try:
+        estado = carregar_estado()
+        token = estado.get("token")
+
+        if not token:
+            print("⚠ Nenhum token registrado")
+            return
+
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=titulo,
+                body=corpo,
+            ),
+            android=messaging.AndroidConfig(
+                priority="high",
+                ttl=0,
+                notification=messaging.AndroidNotification(
+                    channel_id="piscina_channel",
+                    sound="default",
+                    tag=str(time.time()),  # força não agrupar
+                ),
+            ),
+            token=token,  # ← ENVIO DIRETO
+        )
+
+        messaging.send(message)
+        print("✔ Notificação enviada (TOKEN DIRETO)")
+    except Exception as e:
+        print("✖ Erro ao enviar:", e)
 
 
 # ================= LOOP DE ALERTA =================
@@ -88,11 +102,9 @@ threading.Thread(target=loop_notificacao, daemon=True).start()
 def status():
     estado = carregar_estado()
 
-    # ===== POST vindo do ESP =====
     if request.method == "POST":
         data = request.json or {}
 
-        # marca último contato do ESP
         estado["ultimo_heartbeat"] = time.time()
 
         if "nivel" in data:
@@ -112,14 +124,11 @@ def status():
                 estado["alerta"] = "NORMAL"
                 estado["ciente"] = False
 
-            salvar_estado(estado)
-
+        salvar_estado(estado)
         return jsonify(estado)
 
-    # ===== GET para o APP =====
     agora = time.time()
 
-    # se ESP não envia há 30s → considera offline
     if agora - estado.get("ultimo_heartbeat", 0) > 30:
         return jsonify({
             "nivel": "DESCONECTADO",
@@ -148,6 +157,20 @@ def comando():
 
     salvar_estado(estado)
     return jsonify(estado)
+
+
+# ================= REGISTRO TOKEN =================
+@app.route("/registrar_token", methods=["POST"])
+def registrar_token():
+    estado = carregar_estado()
+    token = (request.json or {}).get("token")
+
+    if token:
+        estado["token"] = token
+        salvar_estado(estado)
+        print("✔ Token registrado")
+
+    return jsonify({"ok": True})
 
 
 # ================= START =================
